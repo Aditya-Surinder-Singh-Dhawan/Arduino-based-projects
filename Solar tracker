@@ -1,0 +1,122 @@
+# ☀️ Automatic Solar Tracker using Arduino
+
+An automated single-axis solar tracking system powered by Arduino. The system uses two Light Dependent Resistor (LDR) modules to continuously monitor ambient light levels and automatically rotates a solar panel via a servo motor toward the strongest light source, maximizing solar energy absorption throughout the day.
+
+---
+
+## 🛠️ Components Used
+
+| Component | Quantity | Purpose |
+|---|:---:|---|
+| **Arduino Uno** | 1 | Microcontroller / Central Processor |
+| **LDR Sensor Modules** | 2 | Detect light intensity (Left & Right) |
+| **Servo Motor (SG90 / MG996R)** | 1 | Rotates the panel mechanism |
+| **Breadboard** | 1 | Circuit prototyping without soldering |
+| **Jumper Wires** | As required | Circuit interconnections |
+| **Power Supply** | 1 | 5V DC power source (External 5V recommended for servo) |
+
+---
+
+## 🔌 Pin Connections & Circuit Wiring
+
+### 1. LDR Modules to Arduino Uno
+
+| LDR Module | Pin | Arduino Uno Pin | Connection Details |
+|---|---|---|---|
+| **LDR1 (Left)** | **VCC** | 5V | Common 5V Rail |
+| | **GND** | GND | Common Ground Rail |
+| | **AO** | **A0** | Analog Signal Output |
+| **LDR2 (Right)**| **VCC** | 5V | Common 5V Rail |
+| | **GND** | GND | Common Ground Rail |
+| | **AO** | **A1** | Analog Signal Output |
+
+---
+
+### 2. Servo Motor to Arduino Uno
+
+| Servo Pin | Wire Color | Connection |
+|---|---|---|
+| **Signal (PWM)** | Yellow / Orange | **Pin D9** |
+| **Power (VCC)** | Red | External 5V Power Supply (*Recommended*) |
+| **Ground (GND)**| Brown / Black | Common Ground (**Arduino GND + Power Supply GND**) |
+
+> ⚠️ **Power Tip:** Powering the servo motor directly from the Arduino 5V pin can cause sudden voltage drops (brownouts) and reset the board. For best stability, power the servo using a dedicated 5V power source and tie the grounds together.
+
+---
+
+## ⚙️ How It Works
+
+1. **Light Detection:** The two LDR modules constantly read light intensity on the left (`A0`) and right (`A1`) sides of the solar panel frame.
+2. **Signal Comparison:** The Arduino calculates the difference between both sensor outputs (`error = leftValue - rightValue`).
+3. **Thresholding (Deadband):** To prevent constant jittering, a threshold window (`deadband = 30`) is set.
+4. **Servo Rotation:**
+   * If the **left sensor** reads significantly higher light, the servo increments its angle to rotate **left**.
+   * If the **right sensor** reads higher light, the servo decrements its angle to rotate **right**.
+5. **Low-Light / Night Mode:** If both sensors detect darkness (`readings < 100`), the panel automatically returns to its flat neutral parking position (**90°**).
+
+---
+
+## 💻 Arduino Code (`solar_tracker.ino`)
+
+```cpp
+#include <Servo.h>
+
+Servo solarServo;
+
+// Pin Definitions
+const int ldrLeft = A0;   // Left LDR Module AO Pin
+const int ldrRight = A1;  // Right LDR Module AO Pin
+const int servoPin = 9;   // Servo Signal Pin
+
+// Motor Settings
+const int parkPosition = 90; // Neutral horizontal position (degrees)
+int currentPos = 90;         // Active position tracker
+const int deadband = 30;     // Hysteresis window to prevent motor jitter
+
+void setup() {
+  solarServo.attach(servoPin);
+  solarServo.write(currentPos);
+
+  pinMode(ldrLeft, INPUT);
+  pinMode(ldrRight, INPUT);
+
+  Serial.begin(9600);
+  Serial.println("Solar Tracker System Initialized!");
+}
+
+void loop() {
+  int leftValue = analogRead(ldrLeft);
+  int rightValue = analogRead(ldrRight);
+
+  // Calculate light differential
+  int error = leftValue - rightValue;
+
+  // 1. Low Light / Night Mode (Reset to 90 degrees)
+  if (leftValue < 100 && rightValue < 100) {
+    currentPos = parkPosition;
+  }
+  // 2. Left side is brighter -> Rotate Left
+  else if (error > deadband) {
+    currentPos = min(180, currentPos + 2);
+  }
+  // 3. Right side is brighter -> Rotate Right
+  else if (error < -deadband) {
+    currentPos = max(0, currentPos - 2);
+  }
+
+  solarServo.write(currentPos);
+
+  // Serial Monitor Debugging
+  Serial.print("Left LDR: "); Serial.print(leftValue);
+  Serial.print(" | Right LDR: "); Serial.print(rightValue);
+  Serial.print(" | Servo Angle: "); Serial.println(currentPos);
+
+  delay(50); // Small delay for smooth mechanical motion
+}
+
+## Troubleshooting & Calibration
+1. Jittering Servo: If the motor rapidly twitches back and forth, increase the deadband variable (e.g., change from 30 to 50) in the code.
+
+2. Inverted Movement: If the panel turns away from the light source, swap the A0 and A1 LDR wires or swap the + and - rotation conditions in the code.
+
+3. Common Ground: Always make sure your power supply GND and Arduino GND are connected together.
