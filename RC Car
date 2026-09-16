@@ -1,0 +1,227 @@
+# Arduino Bluetooth Controlled 4WD RC Car
+
+An open-source, Arduino-powered 4-wheel drive (4WD) robotic car controlled via Bluetooth using an Android smartphone app or custom Bluetooth terminal.
+
+---
+
+## 🛠️ Components Used
+
+| Component | Quantity | Notes |
+|---|:---:|---|
+| **Arduino Uno** | 1 | Microcontroller Board |
+| **HC-05 Bluetooth Module** | 1 | Wireless Serial Communication |
+| **L298N Dual H-Bridge Motor Driver** | 1 | Motor Driver Module |
+| **DC Geared Motors** | 4 | 3V-6V TT Motors |
+| **RC Car Chassis** | 1 | 4WD Acrylic Chassis Frame |
+| **Battery Pack** | 1 | 7.4V - 12V (e.g., 2x 18650 Li-ion Batteries) |
+| **Resistors** | 2 | 1kΩ and 2kΩ (for logic voltage divider) |
+| **Jumper Wires & Switch** | As required | Male-to-Female & Male-to-Male |
+
+---
+
+## 🔌 Pin Connections & Circuit Wiring
+
+### 1. HC-05 Bluetooth Module
+
+> ⚠️ **Important Note on 3.3V Logic:** The HC-05 RX pin operates on **3.3V logic**, whereas the Arduino digital outputs supply **5V**. Although the Arduino board features a 3.3V power pin, that pin only provides power output and **cannot** lower signal voltages. To prevent damaging the HC-05 module over time, use a simple resistor voltage divider on the RX line.
+
+| HC-05 Pin | Arduino Uno | Details / Connection Notes |
+|---|---|---|
+| **VCC** | 5V | Power supply (HC-05 has onboard 5V to 3.3V regulator) |
+| **GND** | GND | Common Ground |
+| **TX** | Pin 10 | SoftwareSerial RX (Receives 3.3V signal into Arduino safely) |
+| **RX** | Pin 11 | SoftwareSerial TX (**Connect via Voltage Divider** below) |
+
+#### Voltage Divider Wiring for HC-05 RX:
+```
+Arduino Pin 11 (5V TX) ─── [ 1kΩ Resistor ] ───┬─── HC-05 RX Pin (3.3V Logic)
+                                               │
+                                       [ 2kΩ Resistor ]
+                                               │
+                                              GND
+```
+
+---
+
+### 2. L298N Motor Driver Pins
+
+> 📌 **PWM Pin Selection:** `ENB` has been configured on **Pin 9** (instead of Pin 8) because Pin 8 on the Arduino Uno does not support hardware PWM speed control.
+
+| L298N Pin | Arduino Uno Pin | Function |
+|---|---|---|
+| **ENA** | Pin 3 | Left Motors Speed Control (PWM) |
+| **IN1** | Pin 4 | Left Motors Direction Control |
+| **IN2** | Pin 5 | Left Motors Direction Control |
+| **ENB** | Pin 9 | Right Motors Speed Control (PWM) |
+| **IN3** | Pin 6 | Right Motors Direction Control |
+| **IN4** | Pin 7 | Right Motors Direction Control |
+
+---
+
+### 3. Motor Wiring (4 Motors to 2 Channels)
+
+Because the L298N module provides terminal blocks for two motor output channels (Channel A and Channel B), the 4 motors are wired in **parallel pairs** based on their side:
+
+| L298N Terminal | Connected Motors | Wiring Instructions |
+|---|---|---|
+| **OUT1 & OUT2** | **Left Motors** (Front & Rear) | Join both Left (+) wires to **OUT1**; join both Left (-) wires to **OUT2**. |
+| **OUT3 & OUT4** | **Right Motors** (Front & Rear) | Join both Right (+) wires to **OUT3**; join both Right (-) wires to **OUT4**. |
+
+*Note: If a specific motor spins in reverse when testing, simply swap its individual positive and negative wires in the screw terminal block.*
+
+---
+
+### 4. Power Supply Connections
+
+* **Battery Positive (+):** Connected to L298N **12V / Power Terminal**.
+* **Battery Negative (-):** Connected to L298N **GND Terminal** AND Arduino **GND** (*Common ground is required for stable communication*).
+* **Arduino Power:** Can be powered via the L298N 5V output to Arduino **5V/Vin**, or via a separate 9V battery/USB power source.
+
+---
+
+## 🎮 Bluetooth Control Commands
+
+| Command Character | Action | Left Motors | Right Motors |
+|:---:|---|---|---|
+| **`F`** | Forward | Forward | Forward |
+| **`B`** | Backward | Backward | Backward |
+| **`L`** | Turn Left (Spin on spot) | Backward | Forward |
+| **`R`** | Turn Right (Spin on spot) | Forward | Backward |
+| **`S`** | Stop | Off (0 PWM) | Off (0 PWM) |
+
+*Default motor speed is set to **200/255** (~78% duty cycle) using PWM.*
+
+---
+
+## 💻 Software & Source Code
+
+The project is developed in **Arduino C/C++** using the standard Arduino IDE. It uses the `SoftwareSerial` library to create dedicated serial communication pins for the Bluetooth module, leaving hardware serial pins (0 & 1) free for code uploading and debugging.
+
+### Arduino Code (`bluetooth_car.ino`)
+
+```cpp
+#include <SoftwareSerial.h>
+
+// SoftwareSerial (RX, TX)
+// Pin 10 -> HC-05 TX
+// Pin 11 -> HC-05 RX (via 1k/2k resistor voltage divider)
+SoftwareSerial BT(10, 11);
+
+// Left Motor Pins
+const int ENA = 3;  // Speed Control (PWM)
+const int IN1 = 4;  // Direction
+const int IN2 = 5;  // Direction
+
+// Right Motor Pins
+const int ENB = 9;  // Speed Control (PWM - Pin 9 supports PWM)
+const int IN3 = 6;  // Direction
+const int IN4 = 7;  // Direction
+
+// Default Motor Speed (0 - 255)
+int motorSpeed = 200;
+
+void setup() {
+  // Set all motor control pins as outputs
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+
+  pinMode(ENB, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  // Initialize Bluetooth and Hardware Serial Baud Rates
+  BT.begin(9600);
+  Serial.begin(9600);
+
+  Serial.println("Bluetooth RC Car Ready!");
+}
+
+void loop() {
+  if (BT.available()) {
+    char command = BT.read();
+    Serial.println(command);
+
+    if (command == 'F') {
+      forward();
+    } else if (command == 'B') {
+      backward();
+    } else if (command == 'L') {
+      left();
+    } else if (command == 'R') {
+      right();
+    } else if (command == 'S') {
+      stopCar();
+    }
+  }
+}
+
+// Move Forward
+void forward() {
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+// Move Backward
+void backward() {
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+// Turn Left (Spin on spot: Left wheels back, Right wheels forward)
+void left() {
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+// Turn Right (Spin on spot: Left wheels forward, Right wheels back)
+void right() {
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+// Stop all motors
+void stopCar() {
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+```
+
+---
+
+## 🔧 Troubleshooting & Setup Tips
+
+1. **Bluetooth Pairing:** 
+   * Pair your phone with the HC-05 module in system settings first.
+   * Default PIN is usually `1234` or `0000`.
+2. **Common Ground Connection:**
+   * Always ensure the battery ground, L298N ground, and Arduino ground are tied together. Without a shared ground, control signals will fail or act erratically.
+3. **Motor Direction Correction:**
+   * If pressing `'F'` makes the car turn or move backward, check individual motor polarity. Swap the positive and negative wires of the inverted motor directly at the L298N terminal block.
+4. **Code Uploading:**
+   * Using `SoftwareSerial` on pins 10 & 11 allows you to upload code without disconnecting the HC-05 module.
